@@ -1,6 +1,6 @@
 // ======================================================
 // Web Camera AR Hunt Tanpa Marker
-// PNG muncul random, ditangkap pakai crosshair
+// Beberapa PNG muncul bersamaan dan dipilih pakai crosshair
 // Score hanya bertambah jika item5.png tertangkap
 // ======================================================
 
@@ -25,15 +25,17 @@ const finalTimeText = document.getElementById("finalTimeText");
 
 const maxScore = 5;
 
-// Ukuran area hit crosshair.
-// Makin besar, makin mudah ditangkap.
-const captureRadius = 58;
+// Area hit dibuat besar supaya lebih enak dimainkan di layar HP.
+const captureRadius = 105;
+
+// Jumlah item yang muncul bersamaan.
+const itemsPerWave = 5;
 
 // Jeda spawn object baru setelah capture.
-const respawnDelay = 420;
+const respawnDelay = 360;
 
 // Spawn item berpindah otomatis jika terlalu lama tidak ditangkap.
-const autoMoveInterval = 2600;
+const autoMoveInterval = 3200;
 
 // Asset item.
 // item5.png adalah target score.
@@ -69,8 +71,7 @@ const itemList = [
 // State
 // ==========================
 
-let currentItemEl = null;
-let currentItemData = null;
+let activeItems = [];
 
 let score = 0;
 let startTime = 0;
@@ -82,21 +83,9 @@ let gameFinished = false;
 let timerId = null;
 let animationId = null;
 let autoMoveId = null;
+let respawnId = null;
 
 let lastFrameTime = performance.now();
-
-// Posisi virtual object.
-// x dan y = posisi layar.
-// depth = efek jarak, 0 dekat, 1 jauh.
-let itemState = {
-  x: 0,
-  y: 0,
-  targetX: 0,
-  targetY: 0,
-  depth: 0.5,
-  rotation: 0,
-  floatPhase: 0
-};
 
 // Data gyro.
 // Dipakai untuk efek parallax agar terasa seperti AR.
@@ -128,6 +117,10 @@ function randomRange(min, max) {
 function randomItem() {
   const index = Math.floor(Math.random() * itemList.length);
   return itemList[index];
+}
+
+function shuffledItems() {
+  return [...itemList].sort(() => Math.random() - 0.5);
 }
 
 function getScreenCenter() {
@@ -202,11 +195,7 @@ async function enableMotionPermission() {
     try {
       const permission = await DeviceOrientationEvent.requestPermission();
 
-      if (permission === "granted") {
-        motionEnabled = true;
-      } else {
-        motionEnabled = false;
-      }
+      motionEnabled = permission === "granted";
     } catch (error) {
       console.warn("Gyro permission error:", error);
       motionEnabled = false;
@@ -262,13 +251,33 @@ function getParallaxOffset() {
 // Spawn Item
 // ==========================
 
-function removeCurrentItem() {
-  if (currentItemEl && currentItemEl.parentNode) {
-    currentItemEl.parentNode.removeChild(currentItemEl);
+function clearRespawnTimer() {
+  if (respawnId) {
+    clearTimeout(respawnId);
+    respawnId = null;
+  }
+}
+
+function removeItem(item) {
+  if (item.el && item.el.parentNode) {
+    item.el.parentNode.removeChild(item.el);
   }
 
-  currentItemEl = null;
-  currentItemData = null;
+  activeItems = activeItems.filter((activeItem) => activeItem !== item);
+}
+
+function deactivateItem(item) {
+  activeItems = activeItems.filter((activeItem) => activeItem !== item);
+}
+
+function removeAllItems() {
+  activeItems.forEach((item) => {
+    if (item.el && item.el.parentNode) {
+      item.el.parentNode.removeChild(item.el);
+    }
+  });
+
+  activeItems = [];
 }
 
 function createItemElement(itemData) {
@@ -285,58 +294,82 @@ function createItemElement(itemData) {
   return img;
 }
 
-function generateRandomPosition() {
-  const safeTop = 150;
-  const safeBottom = 180;
-  const marginX = 80;
+function generateRandomPosition(index = 0, total = 1) {
+  const safeTop = 145;
+  const safeBottom = 170;
+  const marginX = 64;
+  const laneWidth = (window.innerWidth - marginX * 2) / Math.max(total, 1);
+  const laneCenter = marginX + laneWidth * index + laneWidth / 2;
 
-  const x = randomRange(marginX, window.innerWidth - marginX);
+  const x = randomRange(laneCenter - laneWidth * 0.35, laneCenter + laneWidth * 0.35);
   const y = randomRange(safeTop, window.innerHeight - safeBottom);
 
   return {
-    x,
-    y
+    x: clamp(x, marginX, window.innerWidth - marginX),
+    y: clamp(y, safeTop, window.innerHeight - safeBottom)
   };
 }
 
-function spawnNewItem() {
-  if (!gameStarted || gameFinished) return;
+function createGameItem(itemData, index = 0, total = 1) {
+  const el = createItemElement(itemData);
+  const pos = generateRandomPosition(index, total);
+  const depth = randomRange(0.08, 0.62);
 
-  removeCurrentItem();
-
-  currentItemData = randomItem();
-  currentItemEl = createItemElement(currentItemData);
-
-  const pos = generateRandomPosition();
-
-  itemState.x = pos.x;
-  itemState.y = pos.y;
-  itemState.targetX = pos.x;
-  itemState.targetY = pos.y;
-
-  // depth 0 = dekat, 1 = jauh.
-  itemState.depth = randomRange(0.15, 0.85);
-  itemState.rotation = randomRange(-12, 12);
-  itemState.floatPhase = randomRange(0, Math.PI * 2);
-
-  worldLayer.appendChild(currentItemEl);
-
-  if (currentItemData.isScoreItem) {
-    setInstruction("Target muncul! Arahkan crosshair ke item5.png lalu Capture.");
-  } else {
-    setInstruction("Item pengecoh muncul. Cari item5.png.");
-  }
+  return {
+    el,
+    data: itemData,
+    state: {
+      x: pos.x,
+      y: pos.y,
+      targetX: pos.x,
+      targetY: pos.y,
+      depth,
+      rotation: randomRange(-10, 10),
+      floatPhase: randomRange(0, Math.PI * 2)
+    }
+  };
 }
 
-function moveItemToNewRandomPosition() {
-  if (!currentItemEl || gameFinished) return;
+function spawnItem(itemData = randomItem()) {
+  if (!gameStarted || gameFinished) return;
 
-  const pos = generateRandomPosition();
+  const item = createGameItem(itemData, activeItems.length, itemsPerWave);
+  activeItems.push(item);
+  worldLayer.appendChild(item.el);
+}
 
-  itemState.targetX = pos.x;
-  itemState.targetY = pos.y;
-  itemState.depth = randomRange(0.15, 0.85);
-  itemState.rotation = randomRange(-12, 12);
+function spawnNewWave() {
+  if (!gameStarted || gameFinished) return;
+
+  clearRespawnTimer();
+  removeAllItems();
+
+  const waveItems = shuffledItems().slice(0, itemsPerWave);
+
+  waveItems.forEach((itemData, index) => {
+    const item = createGameItem(itemData, index, waveItems.length);
+    activeItems.push(item);
+    worldLayer.appendChild(item.el);
+  });
+
+  setInstruction("Pilih item dengan crosshair. Tangkap item5.png untuk score.");
+}
+
+function moveItemToNewRandomPosition(item, index, total) {
+  const pos = generateRandomPosition(index, total);
+
+  item.state.targetX = pos.x;
+  item.state.targetY = pos.y;
+  item.state.depth = randomRange(0.08, 0.62);
+  item.state.rotation = randomRange(-10, 10);
+}
+
+function moveAllItemsToNewRandomPosition() {
+  if (gameFinished) return;
+
+  activeItems.forEach((item, index) => {
+    moveItemToNewRandomPosition(item, index, activeItems.length);
+  });
 }
 
 // ==========================
@@ -347,38 +380,35 @@ function renderLoop(now) {
   const deltaTime = Math.min((now - lastFrameTime) / 1000, 0.05);
   lastFrameTime = now;
 
-  if (currentItemEl) {
-    itemState.x = lerp(itemState.x, itemState.targetX, deltaTime * 2.6);
-    itemState.y = lerp(itemState.y, itemState.targetY, deltaTime * 2.6);
+  activeItems.forEach((item) => {
+    const state = item.state;
 
-    itemState.floatPhase += deltaTime * 2.4;
+    state.x = lerp(state.x, state.targetX, deltaTime * 2.6);
+    state.y = lerp(state.y, state.targetY, deltaTime * 2.6);
+    state.floatPhase += deltaTime * 2.4;
 
     const parallax = getParallaxOffset();
 
-    // Object jauh lebih kecil, object dekat lebih besar.
-    const scale = lerp(1.2, 0.58, itemState.depth);
+    // Object dibuat lebih besar dan blur dikurangi supaya mudah ditangkap.
+    const scale = lerp(1.38, 0.82, state.depth);
+    const floatY = Math.sin(state.floatPhase) * 8;
+    const floatX = Math.cos(state.floatPhase * 0.75) * 4;
+    const opacity = lerp(1.0, 0.84, state.depth);
+    const blur = lerp(0, 0.65, state.depth);
 
-    // Efek floating.
-    const floatY = Math.sin(itemState.floatPhase) * 10;
-    const floatX = Math.cos(itemState.floatPhase * 0.75) * 5;
+    const finalX = state.x + parallax.x * (1 - state.depth);
+    const finalY = state.y + parallax.y * (1 - state.depth);
 
-    // Object jauh sedikit blur/transparan.
-    const opacity = lerp(1.0, 0.72, itemState.depth);
-    const blur = lerp(0, 1.4, itemState.depth);
+    item.el.style.opacity = opacity;
+    item.el.style.filter = `blur(${blur}px)`;
 
-    const finalX = itemState.x + parallax.x * (1 - itemState.depth);
-    const finalY = itemState.y + parallax.y * (1 - itemState.depth);
-
-    currentItemEl.style.opacity = opacity;
-    currentItemEl.style.filter = `blur(${blur}px)`;
-
-    currentItemEl.style.transform = `
+    item.el.style.transform = `
       translate(-50%, -50%)
       translate3d(${finalX - window.innerWidth / 2 + floatX}px, ${finalY - window.innerHeight / 2 + floatY}px, 0)
       scale(${scale})
-      rotate(${itemState.rotation}deg)
+      rotate(${state.rotation}deg)
     `;
-  }
+  });
 
   animationId = requestAnimationFrame(renderLoop);
 }
@@ -387,10 +417,8 @@ function renderLoop(now) {
 // Capture Logic
 // ==========================
 
-function getCurrentItemScreenPosition() {
-  if (!currentItemEl) return null;
-
-  const rect = currentItemEl.getBoundingClientRect();
+function getItemScreenPosition(item) {
+  const rect = item.el.getBoundingClientRect();
 
   return {
     x: rect.left + rect.width / 2,
@@ -400,43 +428,51 @@ function getCurrentItemScreenPosition() {
   };
 }
 
-function isCrosshairHitItem() {
-  const itemPos = getCurrentItemScreenPosition();
-
-  if (!itemPos) return false;
-
+function getNearestCapturableItem() {
   const center = getScreenCenter();
+  let nearest = null;
 
-  const dx = itemPos.x - center.x;
-  const dy = itemPos.y - center.y;
+  activeItems.forEach((item) => {
+    const itemPos = getItemScreenPosition(item);
+    const dx = itemPos.x - center.x;
+    const dy = itemPos.y - center.y;
+    const distance = Math.sqrt(dx * dx + dy * dy);
+    const itemBonusRadius = Math.min(itemPos.width, itemPos.height) * 0.42;
+    const hitRadius = captureRadius + itemBonusRadius;
 
-  const distance = Math.sqrt(dx * dx + dy * dy);
+    if (distance > hitRadius) return;
 
-  // Object besar lebih mudah kena sedikit.
-  const itemBonusRadius = Math.min(itemPos.width, itemPos.height) * 0.22;
+    if (!nearest || distance < nearest.distance) {
+      nearest = {
+        item,
+        distance
+      };
+    }
+  });
 
-  return distance <= captureRadius + itemBonusRadius;
+  return nearest ? nearest.item : null;
 }
 
 function captureItem() {
   if (!gameStarted || gameFinished) return;
 
-  if (!currentItemEl || !currentItemData) return;
+  if (activeItems.length === 0) return;
 
-  const hit = isCrosshairHitItem();
+  const capturedItem = getNearestCapturableItem();
 
-  if (!hit) {
-    setInstruction("Belum tepat. Arahkan crosshair ke item.");
+  if (!capturedItem) {
+    setInstruction("Dekatkan crosshair ke salah satu item lalu Capture.");
     shakeCrosshair();
     return;
   }
 
-  currentItemEl.classList.add("captured");
-
-  const capturedItem = currentItemData;
+  capturedItem.el.classList.add("captured");
+  deactivateItem(capturedItem);
 
   setTimeout(() => {
-    if (capturedItem.isScoreItem) {
+    removeItem(capturedItem);
+
+    if (capturedItem.data.isScoreItem) {
       score++;
       updateScoreUI();
 
@@ -446,14 +482,18 @@ function captureItem() {
       }
 
       setInstruction(`Mantap! item5.png tertangkap ${score}/${maxScore}.`);
-    } else {
-      setInstruction("Itu bukan item5.png. Score tidak bertambah.");
-    }
 
-    setTimeout(() => {
-      spawnNewItem();
-    }, respawnDelay);
-  }, 260);
+      respawnId = setTimeout(() => {
+        spawnNewWave();
+      }, respawnDelay);
+    } else {
+      setInstruction(`${capturedItem.data.name} tertangkap. Cari item5.png untuk score.`);
+
+      respawnId = setTimeout(() => {
+        spawnItem(randomItem());
+      }, respawnDelay);
+    }
+  }, 220);
 }
 
 function shakeCrosshair() {
@@ -513,9 +553,7 @@ async function startGame() {
   startButton.classList.add("hidden");
   captureButton.classList.remove("hidden");
 
-  setInstruction("Game dimulai. Cari item5.png!");
-
-  spawnNewItem();
+  spawnNewWave();
 
   timerId = setInterval(updateTimeUI, 100);
 
@@ -525,13 +563,15 @@ async function startGame() {
   }
 
   autoMoveId = setInterval(() => {
-    moveItemToNewRandomPosition();
+    moveAllItemsToNewRandomPosition();
   }, autoMoveInterval);
 }
 
 function finishGame() {
   gameFinished = true;
   gameStarted = false;
+
+  clearRespawnTimer();
 
   if (timerId) {
     clearInterval(timerId);
@@ -545,7 +585,7 @@ function finishGame() {
 
   elapsedTime = (performance.now() - startTime) / 1000;
 
-  removeCurrentItem();
+  removeAllItems();
 
   captureButton.classList.add("hidden");
 
@@ -559,6 +599,7 @@ function finishGame() {
 
 function restartGame() {
   resultPanel.classList.add("hidden");
+  clearRespawnTimer();
 
   score = 0;
   elapsedTime = 0;
@@ -568,7 +609,7 @@ function restartGame() {
   updateScoreUI();
   timeText.textContent = "0.0";
 
-  removeCurrentItem();
+  removeAllItems();
 
   startButton.disabled = false;
   startButton.classList.remove("hidden");
@@ -606,10 +647,10 @@ window.addEventListener("pointerup", (event) => {
 
 // Kalau ukuran layar berubah, object jangan keluar area terlalu jauh.
 window.addEventListener("resize", () => {
-  if (!currentItemEl) return;
-
-  itemState.targetX = clamp(itemState.targetX, 80, window.innerWidth - 80);
-  itemState.targetY = clamp(itemState.targetY, 150, window.innerHeight - 180);
+  activeItems.forEach((item) => {
+    item.state.targetX = clamp(item.state.targetX, 64, window.innerWidth - 64);
+    item.state.targetY = clamp(item.state.targetY, 145, window.innerHeight - 170);
+  });
 });
 
 // ==========================

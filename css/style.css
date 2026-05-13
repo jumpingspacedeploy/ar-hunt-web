@@ -47,8 +47,8 @@ body {
   position: absolute;
   left: 50%;
   top: 50%;
-  width: 120px;
-  height: 120px;
+  width: 136px;
+  height: 136px;
   object-fit: contain;
   transform-origin: center center;
   will-change: transform, opacity, filter;
@@ -123,8 +123,8 @@ body {
   position: absolute;
   left: 50%;
   top: 50%;
-  width: 76px;
-  height: 76px;
+  width: 94px;
+  height: 94px;
   transform: translate(-50%, -50%);
 }
 
