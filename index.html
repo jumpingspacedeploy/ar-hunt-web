@@ -2,76 +2,82 @@
 <html lang="id">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-  <meta name="theme-color" content="#000000" />
-  <title>AR Hunt Object Voice</title>
-  <link rel="stylesheet" href="style.css" />
+
+  <meta
+    name="viewport"
+    content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover"
+  />
+
+  <title>AR Hunt PNG</title>
+
+  <link rel="stylesheet" href="css/style.css" />
 </head>
+
 <body>
 
-  <!-- Camera background -->
-  <video id="camera" autoplay playsinline muted></video>
+  <main id="app">
 
-  <!-- Game layer -->
-  <main id="gameLayer">
-    <img id="huntObject" src="assets/item1.png" alt="hunt object" />
-    <div id="crosshair">
-      <span></span>
+    <!-- Kamera -->
+    <video
+      id="cameraVideo"
+      autoplay
+      playsinline
+      muted
+    ></video>
+
+    <!-- Layer object PNG -->
+    <div id="worldLayer"></div>
+
+    <!-- UI -->
+    <div id="uiLayer">
+
+      <div id="topBar">
+        <div class="hudBox">
+          Score: <span id="scoreText">0</span>/5
+        </div>
+
+        <div class="hudBox">
+          Time: <span id="timeText">0.0</span>s
+        </div>
+      </div>
+
+      <div id="instructionBox">
+        Tekan Start untuk mulai AR Hunt.
+      </div>
+
+      <div id="crosshair">
+        <div class="crosshairCircle"></div>
+        <div class="crosshairDot"></div>
+      </div>
+
+      <div id="bottomControls">
+        <button id="startButton" type="button">START</button>
+        <button id="captureButton" type="button" class="hidden">CAPTURE</button>
+      </div>
+
     </div>
+
+    <!-- Panel hasil -->
+    <div id="resultPanel" class="hidden">
+      <div class="resultCard">
+        <h1>Game Selesai</h1>
+
+        <p>
+          Item tertangkap:
+          <strong><span id="finalScoreText">0</span>/5</strong>
+        </p>
+
+        <p>
+          Waktu:
+          <strong><span id="finalTimeText">0.0</span> detik</strong>
+        </p>
+
+        <button id="restartButton" type="button">MAIN LAGI</button>
+      </div>
+    </div>
+
   </main>
 
-  <!-- UI -->
-  <section id="ui">
-
-    <div class="top-panel">
-      <div class="info-box">
-        Score: <span id="scoreText">0</span>/5
-      </div>
-
-      <div class="info-box">
-        Time: <span id="timerText">0.0</span>s
-      </div>
-
-      <div class="info-box">
-        Spawn: <span id="roundTimerText">20</span>s
-      </div>
-    </div>
-
-    <div id="statusText" class="status-box">
-      Buka di Safari iOS atau Chrome Android
-    </div>
-
-    <div id="resultPanel" class="result-panel hidden">
-      <h2>Game Selesai!</h2>
-
-      <p>
-        item5.png tertangkap:
-        <b><span id="finalScoreText">0</span>/5</b>
-      </p>
-
-      <p>
-        Total semua item tertangkap:
-        <b><span id="finalTotalCaughtText">0</span></b>
-      </p>
-
-      <p>
-        Waktu:
-        <b><span id="finalTimeText">0.0</span> detik</b>
-      </p>
-
-      <button id="playAgainBtn" type="button">Main Lagi</button>
-    </div>
-
-    <div class="button-group">
-      <button id="startBtn" type="button">Start Camera</button>
-      <button id="gyroBtn" type="button">Aktifkan Gyro</button>
-      <button id="voiceBtn" type="button">Aktifkan Voice</button>
-      <button id="catchBtn" type="button">Tangkap Manual</button>
-      <button id="resetBtn" type="button">Reset Game</button>
-    </div>
-
-  </section>
-
-  <script src="script.js"></script>
+  <script src="js/main.js"></script>
 </body>
 </html>
