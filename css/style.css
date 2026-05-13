@@ -21,7 +21,7 @@ body {
   background: #000;
 }
 
-/* Kamera */
+/* Kamera — rear camera tidak di-mirror */
 #cameraVideo {
   position: absolute;
   inset: 0;
@@ -29,51 +29,237 @@ body {
   height: 100%;
   object-fit: cover;
   background: #000;
-  transform: scaleX(-1);
 }
 
-/* Layer object PNG */
+/* Layer object AR */
 #worldLayer {
   position: absolute;
   inset: 0;
   overflow: hidden;
   pointer-events: none;
-  perspective: 900px;
+  perspective: 800px;
+  perspective-origin: center center;
   transform-style: preserve-3d;
 }
 
-/* Object item */
+/* =====================
+   AR Item Wrapper
+   ===================== */
 .arItem {
   position: absolute;
   left: 50%;
   top: 50%;
-  width: 136px;
-  height: 136px;
-  object-fit: contain;
+  width: 140px;
+  height: 140px;
   transform-origin: center center;
-  will-change: transform, opacity, filter;
+  will-change: transform, opacity;
   pointer-events: none;
   user-select: none;
+}
+
+/* Gambar item — drop-shadow mengikuti bentuk PNG (bukan box-shadow) */
+.ar-img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
   -webkit-user-drag: none;
+  filter: drop-shadow(0 10px 16px rgba(0, 0, 0, 0.6))
+          drop-shadow(0 2px 4px rgba(0, 0, 0, 0.4));
+  animation: arMaterialize 0.55s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
-.arItem.captured {
-  animation: capturePop 280ms ease-out forwards;
-}
-
-@keyframes capturePop {
+/* Spawn: item muncul seperti dideteksi AR, bukan pop langsung */
+@keyframes arMaterialize {
   0% {
-    opacity: 1;
-    transform: translate(-50%, -50%) scale(1);
-  }
-
-  100% {
     opacity: 0;
-    transform: translate(-50%, -50%) scale(1.9) rotate(20deg);
+    transform: scale(0.55);
+    filter: drop-shadow(0 10px 16px rgba(0,0,0,0.6))
+            brightness(4) saturate(0) blur(4px);
+  }
+  55% {
+    opacity: 1;
+    transform: scale(1.06);
+    filter: drop-shadow(0 10px 16px rgba(0,0,0,0.6))
+            brightness(1.4);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+    filter: drop-shadow(0 10px 16px rgba(0,0,0,0.6))
+            drop-shadow(0 2px 4px rgba(0,0,0,0.4));
   }
 }
 
-/* UI */
+/* AR bracket corners — selalu tampil tipis, terang saat dekat */
+.ar-brackets {
+  position: absolute;
+  inset: -10px;
+  pointer-events: none;
+}
+
+.ar-corner {
+  position: absolute;
+  width: 15px;
+  height: 15px;
+  border-color: rgba(255, 255, 255, 0.35);
+  border-style: solid;
+  transition: border-color 0.18s ease, width 0.18s ease, height 0.18s ease;
+}
+
+.ar-corner.tl { top: 0; left: 0; border-width: 2px 0 0 2px; }
+.ar-corner.tr { top: 0; right: 0; border-width: 2px 2px 0 0; }
+.ar-corner.bl { bottom: 0; left: 0; border-width: 0 0 2px 2px; }
+.ar-corner.br { bottom: 0; right: 0; border-width: 0 2px 2px 0; }
+
+/* Item dalam jangkauan crosshair */
+.arItem.near .ar-corner {
+  border-color: rgba(0, 255, 170, 0.95);
+  width: 18px;
+  height: 18px;
+}
+
+/* Item sedang di-dwell */
+.arItem.dwelling .ar-img {
+  filter: drop-shadow(0 10px 16px rgba(0,0,0,0.6))
+          drop-shadow(0 0 22px rgba(0, 255, 170, 0.7))
+          brightness(1.15);
+}
+
+/* Target utama (item5) — brackets berwarna kuning */
+.arItem[data-score-item="true"] .ar-corner {
+  border-color: rgba(255, 220, 50, 0.5);
+}
+
+.arItem[data-score-item="true"].near .ar-corner {
+  border-color: rgba(255, 220, 50, 1);
+}
+
+.arItem[data-score-item="true"].dwelling .ar-img {
+  filter: drop-shadow(0 10px 16px rgba(0,0,0,0.6))
+          drop-shadow(0 0 22px rgba(255, 220, 50, 0.8))
+          brightness(1.2);
+}
+
+/* Label nama item */
+.ar-label {
+  position: absolute;
+  bottom: -18px;
+  left: 50%;
+  transform: translateX(-50%);
+  white-space: nowrap;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.7);
+  text-shadow:
+    0 0 6px rgba(0, 0, 0, 1),
+    0 1px 3px rgba(0, 0, 0, 0.9);
+  pointer-events: none;
+}
+
+.arItem[data-score-item="true"] .ar-label {
+  color: rgba(255, 220, 50, 0.9);
+}
+
+/* Animasi tangkap */
+.arItem.captured .ar-img {
+  animation: captureImgPop 0.3s ease-out forwards;
+}
+
+@keyframes captureImgPop {
+  0% {
+    transform: scale(1);
+    opacity: 1;
+    filter: drop-shadow(0 10px 16px rgba(0,0,0,0.6));
+  }
+  45% {
+    transform: scale(1.35);
+    opacity: 1;
+    filter: drop-shadow(0 0 30px rgba(0,255,170,0.9)) brightness(2.2);
+  }
+  100% {
+    transform: scale(0.6);
+    opacity: 0;
+    filter: drop-shadow(0 0 10px rgba(0,255,170,0.3)) brightness(0.5);
+  }
+}
+
+.arItem.captured .ar-brackets {
+  animation: captureBrackets 0.3s ease-out forwards;
+}
+
+@keyframes captureBrackets {
+  0% { opacity: 1; transform: scale(1); }
+  100% { opacity: 0; transform: scale(1.6); }
+}
+
+/* =====================
+   Crosshair AR
+   ===================== */
+#crosshair {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 88px;
+  height: 88px;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+
+.ch-corner {
+  position: absolute;
+  width: 18px;
+  height: 18px;
+  border-color: rgba(255, 255, 255, 0.9);
+  border-style: solid;
+  transition: border-color 0.15s ease;
+}
+
+.ch-corner.tl { top: 0; left: 0; border-width: 3px 0 0 3px; }
+.ch-corner.tr { top: 0; right: 0; border-width: 3px 3px 0 0; }
+.ch-corner.bl { bottom: 0; left: 0; border-width: 0 0 3px 3px; }
+.ch-corner.br { bottom: 0; right: 0; border-width: 0 3px 3px 0; }
+
+/* Dwell progress ring */
+.ch-ring {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+#dwellRing {
+  fill: none;
+  stroke: rgba(0, 255, 170, 0.9);
+  stroke-width: 3.5;
+  stroke-linecap: round;
+  stroke-dasharray: 264;
+  stroke-dashoffset: 264;
+  transform-origin: 50px 50px;
+  transform: rotate(-90deg);
+  filter: drop-shadow(0 0 6px rgba(0, 255, 170, 0.8));
+}
+
+.ch-dot {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 6px;
+  height: 6px;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.95);
+  box-shadow: 0 0 5px rgba(255,255,255,0.6);
+}
+
+/* =====================
+   UI
+   ===================== */
 #uiLayer {
   position: absolute;
   inset: 0;
@@ -119,34 +305,6 @@ body {
   backdrop-filter: blur(8px);
 }
 
-#crosshair {
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  width: 94px;
-  height: 94px;
-  transform: translate(-50%, -50%);
-}
-
-.crosshairCircle {
-  position: absolute;
-  inset: 0;
-  border: 3px solid rgba(255, 255, 255, 0.9);
-  border-radius: 999px;
-  box-shadow: 0 0 14px rgba(0, 0, 0, 0.45);
-}
-
-.crosshairDot {
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  width: 9px;
-  height: 9px;
-  transform: translate(-50%, -50%);
-  border-radius: 999px;
-  background: #fff;
-}
-
 #bottomControls {
   position: absolute;
   left: 50%;
@@ -170,6 +328,7 @@ body {
   font-size: 18px;
   font-weight: 900;
   letter-spacing: 1px;
+  cursor: pointer;
 }
 
 #startButton:active,
@@ -178,7 +337,9 @@ body {
   transform: scale(0.96);
 }
 
-/* Result */
+/* =====================
+   Result Panel
+   ===================== */
 #resultPanel {
   position: absolute;
   inset: 0;
@@ -217,7 +378,6 @@ body {
   display: none !important;
 }
 
-/* Landscape warning halus */
 @media (orientation: landscape) {
   #instructionBox {
     top: calc(56px + env(safe-area-inset-top));

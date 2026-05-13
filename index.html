@@ -8,7 +8,7 @@
     content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover"
   />
 
-  <title>AR Hunt PNG</title>
+  <title>AR Hunt</title>
 
   <link rel="stylesheet" href="css/style.css" />
 </head>
@@ -25,7 +25,7 @@
       muted
     ></video>
 
-    <!-- Layer object PNG -->
+    <!-- Layer object AR -->
     <div id="worldLayer"></div>
 
     <!-- UI -->
@@ -45,14 +45,21 @@
         Tekan Start untuk mulai AR Hunt.
       </div>
 
+      <!-- Crosshair gaya AR corner-bracket + dwell ring -->
       <div id="crosshair">
-        <div class="crosshairCircle"></div>
-        <div class="crosshairDot"></div>
+        <div class="ch-corner tl"></div>
+        <div class="ch-corner tr"></div>
+        <div class="ch-corner bl"></div>
+        <div class="ch-corner br"></div>
+        <svg class="ch-ring" viewBox="0 0 100 100">
+          <circle id="dwellRing" cx="50" cy="50" r="42"/>
+        </svg>
+        <div class="ch-dot"></div>
       </div>
 
       <div id="bottomControls">
         <button id="startButton" type="button">START</button>
-        <button id="captureButton" type="button" class="hidden">CAPTURE</button>
+        <button id="captureButton" type="button" class="hidden">TANGKAP</button>
       </div>
 
     </div>
