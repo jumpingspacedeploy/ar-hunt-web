@@ -36,7 +36,8 @@ body {
 }
 
 /* Object PNG */
-#huntObject {
+#huntObject,
+.hunt-object {
   position: absolute;
   width: 120px;
   height: 120px;
@@ -47,6 +48,26 @@ body {
   animation: floatObject 1.1s ease-in-out infinite alternate;
 }
 
+.hunt-object {
+  display: block;
+  transition: opacity 0.16s ease, filter 0.16s ease;
+  will-change: left, top, opacity, transform;
+}
+
+.target-item {
+  filter: drop-shadow(0 0 18px rgba(144, 190, 109, 0.95));
+}
+
+.hunt-object.caught {
+  filter: drop-shadow(0 0 24px rgba(144, 190, 109, 1));
+  animation: catchPop 0.25s ease forwards;
+}
+
+.hunt-object.wrong {
+  filter: drop-shadow(0 0 24px rgba(255, 91, 91, 1));
+  animation: wrongPop 0.22s ease forwards;
+}
+
 @keyframes floatObject {
   from {
     transform: translate(-50%, -50%) scale(0.95);
@@ -54,6 +75,24 @@ body {
 
   to {
     transform: translate(-50%, -62%) scale(1.08);
+  }
+}
+
+@keyframes catchPop {
+  to {
+    transform: translate(-50%, -50%) scale(1.28);
+    opacity: 0;
+  }
+}
+
+@keyframes wrongPop {
+  50% {
+    transform: translate(-50%, -50%) scale(0.86);
+  }
+
+  to {
+    transform: translate(-50%, -50%) scale(0.7);
+    opacity: 0;
   }
 }
 
@@ -118,6 +157,7 @@ body {
 .top-panel {
   display: flex;
   justify-content: space-between;
+  flex-wrap: wrap;
   gap: 10px;
 }
 
@@ -131,6 +171,12 @@ body {
   font-weight: bold;
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
+}
+
+.info-box {
+  flex: 1 1 96px;
+  text-align: center;
+  white-space: nowrap;
 }
 
 .status-box {

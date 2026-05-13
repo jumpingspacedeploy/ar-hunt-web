@@ -1,8 +1,10 @@
 const camera = document.getElementById("camera");
-const huntObject = document.getElementById("huntObject");
+const gameLayer = document.getElementById("gameLayer");
+const legacyHuntObject = document.getElementById("huntObject");
 
 const scoreText = document.getElementById("scoreText");
 const timerText = document.getElementById("timerText");
+const roundTimerText = document.getElementById("roundTimerText");
 const statusText = document.getElementById("statusText");
 
 const startBtn = document.getElementById("startBtn");
@@ -19,6 +21,7 @@ const finalTimeText = document.getElementById("finalTimeText");
 
 const targetScore = 5;
 const scoreItem = "assets/item5.png";
+const roundDuration = 10;
 
 const itemImages = [
   "assets/item1.png",
@@ -30,17 +33,16 @@ const itemImages = [
 
 let score = 0;
 let totalCaught = 0;
-let currentItemImage = "";
 
 let gameStarted = false;
 let cameraStarted = false;
 let gyroStarted = false;
 
-let objectVisible = false;
-
 let startTime = 0;
 let elapsedTime = 0;
+let roundStartTime = 0;
 let timerInterval = null;
+let animationFrameId = null;
 
 let recognition = null;
 let isListening = false;
@@ -51,16 +53,17 @@ let currentPitch = 0;
 let baseYaw = null;
 let basePitch = null;
 
-let targetYaw = 0;
-let targetPitch = 0;
+let spawnedObjects = [];
 
-let objectScreenX = 0;
-let objectScreenY = 0;
-
-const sensitivity = 22;
-const catchRadius = 70;
+const sensitivity = 20;
+const catchRadius = 76;
+const visiblePadding = 130;
 
 const deviceInfo = detectDeviceInfo();
+
+if (legacyHuntObject) {
+  legacyHuntObject.remove();
+}
 
 function detectDeviceInfo() {
   const ua = navigator.userAgent || "";
@@ -161,7 +164,7 @@ async function startGyro() {
     gyroStarted = true;
     gyroBtn.textContent = "Gyro Aktif";
 
-    statusText.textContent = "Gyro aktif. Arahkan HP untuk mencari item.";
+    statusText.textContent = "Gyro aktif. Arahkan HP untuk mencari item5.";
 
     if (cameraStarted) {
       startGame();
@@ -173,16 +176,6 @@ async function startGyro() {
 }
 
 function handleOrientation(event) {
-  /*
-    alpha = arah kiri/kanan / kompas relatif
-    beta  = kemiringan depan/belakang
-    gamma = miring kiri/kanan
-
-    Untuk game sederhana:
-    - alpha dipakai sebagai yaw
-    - beta dipakai sebagai pitch
-  */
-
   if (event.alpha === null || event.beta === null) {
     return;
   }
@@ -212,10 +205,10 @@ function normalizeAngle(angle) {
   return angle;
 }
 
-function recenterGyro() {
+function recenterGyro(message = "Arah tengah disetel ulang.") {
   baseYaw = currentYaw;
   basePitch = currentPitch;
-  statusText.textContent = "Arah tengah disetel ulang.";
+  statusText.textContent = message;
 }
 
 // =====================
@@ -229,7 +222,7 @@ function startGame() {
   }
 
   if (!gyroStarted) {
-    statusText.textContent = "Aktifkan gyro dulu agar object tidak ikut layar.";
+    statusText.textContent = "Aktifkan gyro dulu agar object terkunci di ruang AR.";
     return;
   }
 
@@ -238,10 +231,10 @@ function startGame() {
   elapsedTime = 0;
 
   gameStarted = true;
-  objectVisible = false;
 
   scoreText.textContent = score;
   timerText.textContent = "0.0";
+  roundTimerText.textContent = roundDuration;
 
   resultPanel.classList.add("hidden");
 
@@ -250,10 +243,11 @@ function startGame() {
   clearInterval(timerInterval);
   timerInterval = setInterval(updateTimer, 100);
 
-  recenterGyro();
-  spawnObject();
+  recenterGyro("Game mulai. Kejar dan tangkap item5 sebelum waktunya habis.");
+  spawnRound();
 
-  requestAnimationFrame(updateObjectPosition);
+  cancelAnimationFrame(animationFrameId);
+  animationFrameId = requestAnimationFrame(updateObjectsPosition);
 }
 
 function updateTimer() {
@@ -261,9 +255,26 @@ function updateTimer() {
 
   elapsedTime = (performance.now() - startTime) / 1000;
   timerText.textContent = elapsedTime.toFixed(1);
+
+  const roundTimeLeft = getRoundTimeLeft();
+  roundTimerText.textContent = Math.ceil(roundTimeLeft);
+  const targetObject = spawnedObjects.find((item) => item.isTarget);
+
+  if (targetObject) {
+    targetObject.element.dataset.time = Math.ceil(roundTimeLeft);
+  }
+
+  if (roundTimeLeft <= 0) {
+    statusText.textContent = "Waktu spawn habis. Item muncul ulang, cari item5 lagi.";
+    spawnRound();
+  }
 }
 
-function spawnObject() {
+function getRoundTimeLeft() {
+  return Math.max(0, roundDuration - (performance.now() - roundStartTime) / 1000);
+}
+
+function spawnRound() {
   if (!gameStarted) return;
 
   if (score >= targetScore) {
@@ -271,73 +282,114 @@ function spawnObject() {
     return;
   }
 
-  const randomIndex = Math.floor(Math.random() * itemImages.length);
-  currentItemImage = itemImages[randomIndex];
+  clearSpawnedObjects();
+  roundStartTime = performance.now();
 
-  huntObject.src = currentItemImage;
+  const shuffledImages = shuffleArray([...itemImages]);
+  const positions = buildSpawnPositions(shuffledImages.length);
 
-  /*
-    Target disimpan sebagai sudut virtual,
-    bukan posisi layar.
-    Jadi saat HP diputar, object akan bergeser relatif ke crosshair.
-  */
+  spawnedObjects = shuffledImages.map((image, index) => {
+    const element = document.createElement("img");
+    const isTarget = image === scoreItem;
 
-  targetYaw = randomRange(-35, 35);
-  targetPitch = randomRange(-18, 18);
+    element.src = image;
+    element.alt = isTarget ? "target item5" : "decoy item";
+    element.className = `hunt-object${isTarget ? " target-item" : ""}`;
+    element.dataset.time = roundDuration;
+    gameLayer.appendChild(element);
 
-  huntObject.style.display = "block";
-  objectVisible = true;
+    return {
+      element,
+      image,
+      isTarget,
+      yaw: positions[index].yaw,
+      pitch: positions[index].pitch,
+      screenX: 0,
+      screenY: 0
+    };
+  });
 
-  if (currentItemImage === scoreItem) {
-    statusText.textContent = `Target item5 muncul. Putar HP sampai masuk crosshair. Score: ${score}/5`;
-  } else {
-    statusText.textContent = `Item biasa muncul. Hanya item5.png yang menambah score. Score: ${score}/5`;
-  }
+  statusText.textContent = `Ada ${spawnedObjects.length} item muncul. Tangkap item5 dalam ${roundDuration} detik.`;
 }
 
-function updateObjectPosition() {
-  if (!gameStarted || !objectVisible) {
-    requestAnimationFrame(updateObjectPosition);
+function buildSpawnPositions(total) {
+  const relativeYaw = getRelativeYaw();
+  const relativePitch = getRelativePitch();
+  const spreadYaw = [-12, 12, -24, 24, 0];
+  const spreadPitch = [-8, -7, 7, 8, 0];
+  const positions = [];
+
+  for (let index = 0; index < total; index++) {
+    positions.push({
+      yaw: relativeYaw + spreadYaw[index % spreadYaw.length] + randomRange(-4, 4),
+      pitch: relativePitch + spreadPitch[index % spreadPitch.length] + randomRange(-3, 3)
+    });
+  }
+
+  return shuffleArray(positions);
+}
+
+function clearSpawnedObjects() {
+  spawnedObjects.forEach((item) => item.element.remove());
+  spawnedObjects = [];
+}
+
+function updateObjectsPosition() {
+  if (!gameStarted) {
     return;
   }
 
   const relativeYaw = getRelativeYaw();
   const relativePitch = getRelativePitch();
-
-  const diffYaw = normalizeAngle(targetYaw - relativeYaw);
-  const diffPitch = targetPitch - relativePitch;
-
   const centerX = window.innerWidth / 2;
   const centerY = window.innerHeight / 2;
 
-  objectScreenX = centerX + diffYaw * sensitivity;
-  objectScreenY = centerY + diffPitch * sensitivity;
+  spawnedObjects.forEach((item) => {
+    const diffYaw = normalizeAngle(item.yaw - relativeYaw);
+    const diffPitch = item.pitch - relativePitch;
 
-  huntObject.style.left = `${objectScreenX}px`;
-  huntObject.style.top = `${objectScreenY}px`;
+    item.screenX = centerX + diffYaw * sensitivity;
+    item.screenY = centerY + diffPitch * sensitivity;
 
-  const isOutside =
-    objectScreenX < -100 ||
-    objectScreenX > window.innerWidth + 100 ||
-    objectScreenY < -100 ||
-    objectScreenY > window.innerHeight + 100;
+    item.element.style.left = `${item.screenX}px`;
+    item.element.style.top = `${item.screenY}px`;
 
-  huntObject.style.opacity = isOutside ? "0.25" : "1";
+    const isOutside =
+      item.screenX < -visiblePadding ||
+      item.screenX > window.innerWidth + visiblePadding ||
+      item.screenY < -visiblePadding ||
+      item.screenY > window.innerHeight + visiblePadding;
 
-  requestAnimationFrame(updateObjectPosition);
+    item.element.style.opacity = isOutside ? "0.28" : "1";
+  });
+
+  animationFrameId = requestAnimationFrame(updateObjectsPosition);
 }
 
 function randomRange(min, max) {
   return Math.random() * (max - min) + min;
 }
 
-function isObjectInCrosshair() {
+function shuffleArray(items) {
+  for (let index = items.length - 1; index > 0; index--) {
+    const swapIndex = Math.floor(Math.random() * (index + 1));
+    [items[index], items[swapIndex]] = [items[swapIndex], items[index]];
+  }
+
+  return items;
+}
+
+function getObjectInCrosshair() {
   const centerX = window.innerWidth / 2;
   const centerY = window.innerHeight / 2;
 
-  const distance = Math.hypot(objectScreenX - centerX, objectScreenY - centerY);
-
-  return distance <= catchRadius;
+  return spawnedObjects
+    .map((item) => ({
+      item,
+      distance: Math.hypot(item.screenX - centerX, item.screenY - centerY)
+    }))
+    .filter(({ distance }) => distance <= catchRadius)
+    .sort((a, b) => a.distance - b.distance)[0]?.item;
 }
 
 function catchObject() {
@@ -346,50 +398,62 @@ function catchObject() {
     return;
   }
 
-  if (!objectVisible) {
+  if (spawnedObjects.length === 0) {
     statusText.textContent = "Belum ada item.";
     return;
   }
 
-  if (!isObjectInCrosshair()) {
-    statusText.textContent = "Item belum tepat di tengah crosshair. Putar HP sampai pas.";
+  const caughtObject = getObjectInCrosshair();
+
+  if (!caughtObject) {
+    statusText.textContent = "Belum tepat di tengah crosshair. Kejar item sampai masuk lingkaran.";
     return;
   }
 
   totalCaught++;
-
-  huntObject.style.display = "none";
-  objectVisible = false;
-
   vibratePhone();
 
-  if (currentItemImage === scoreItem) {
+  if (caughtObject.isTarget) {
     score++;
     scoreText.textContent = score;
 
+    caughtObject.element.classList.add("caught");
+
     if (score >= targetScore) {
-      finishGame();
+      setTimeout(finishGame, 250);
       return;
     }
 
-    statusText.textContent = `Benar! item5.png tertangkap. Score: ${score}/5`;
-  } else {
-    statusText.textContent = `Item tertangkap, tapi bukan item5.png. Score tetap ${score}/5`;
+    statusText.textContent = `Benar! item5 tertangkap. Score: ${score}/5`;
+    setTimeout(spawnRound, 450);
+    return;
   }
 
-  setTimeout(spawnObject, 700);
+  caughtObject.element.classList.add("wrong");
+  statusText.textContent = `Itu bukan item5. Cari target yang benar. Score: ${score}/5`;
+
+  setTimeout(() => {
+    caughtObject.element.remove();
+    spawnedObjects = spawnedObjects.filter((item) => item !== caughtObject);
+
+    if (spawnedObjects.length === 0) {
+      spawnRound();
+    }
+  }, 240);
 }
 
 function finishGame() {
   gameStarted = false;
-  objectVisible = false;
 
   clearInterval(timerInterval);
   timerInterval = null;
 
+  cancelAnimationFrame(animationFrameId);
+  animationFrameId = null;
+
   elapsedTime = (performance.now() - startTime) / 1000;
 
-  huntObject.style.display = "none";
+  clearSpawnedObjects();
 
   finalScoreText.textContent = score;
   finalTotalCaughtText.textContent = totalCaught;
@@ -397,7 +461,7 @@ function finishGame() {
 
   resultPanel.classList.remove("hidden");
 
-  statusText.textContent = `Game selesai! item5.png tertangkap ${score} kali.`;
+  statusText.textContent = `Game selesai! item5 tertangkap ${score} kali.`;
 }
 
 function resetGame() {
@@ -406,15 +470,18 @@ function resetGame() {
   elapsedTime = 0;
 
   gameStarted = false;
-  objectVisible = false;
 
   clearInterval(timerInterval);
   timerInterval = null;
 
+  cancelAnimationFrame(animationFrameId);
+  animationFrameId = null;
+
   scoreText.textContent = "0";
   timerText.textContent = "0.0";
+  roundTimerText.textContent = roundDuration;
 
-  huntObject.style.display = "none";
+  clearSpawnedObjects();
   resultPanel.classList.add("hidden");
 
   statusText.textContent = "Game direset. Tekan Start Camera lalu Aktifkan Gyro.";
