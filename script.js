@@ -21,7 +21,10 @@ const finalTimeText = document.getElementById("finalTimeText");
 
 const targetScore = 5;
 const scoreItem = "assets/item5.png";
-const roundDuration = 10;
+const roundDuration = 20;
+const crowdSize = 48;
+const worldWidth = 1800;
+const worldHeight = 1200;
 
 const itemImages = [
   "assets/item1.png",
@@ -54,16 +57,23 @@ let baseYaw = null;
 let basePitch = null;
 
 let spawnedObjects = [];
+let worldLayer = null;
+let cameraX = 0;
+let cameraY = 0;
+let targetCameraX = 0;
+let targetCameraY = 0;
 
-const sensitivity = 20;
+const worldSensitivity = 34;
 const catchRadius = 76;
-const visiblePadding = 130;
+const cameraEase = 0.14;
 
 const deviceInfo = detectDeviceInfo();
 
 if (legacyHuntObject) {
   legacyHuntObject.remove();
 }
+
+createWorldLayer();
 
 function detectDeviceInfo() {
   const ua = navigator.userAgent || "";
@@ -208,6 +218,10 @@ function normalizeAngle(angle) {
 function recenterGyro(message = "Arah tengah disetel ulang.") {
   baseYaw = currentYaw;
   basePitch = currentPitch;
+  cameraX = 0;
+  cameraY = 0;
+  targetCameraX = 0;
+  targetCameraY = 0;
   statusText.textContent = message;
 }
 
@@ -285,48 +299,67 @@ function spawnRound() {
   clearSpawnedObjects();
   roundStartTime = performance.now();
 
-  const shuffledImages = shuffleArray([...itemImages]);
-  const positions = buildSpawnPositions(shuffledImages.length);
+  const items = buildCrowdItems();
 
-  spawnedObjects = shuffledImages.map((image, index) => {
+  spawnedObjects = items.map((item) => {
     const element = document.createElement("img");
-    const isTarget = image === scoreItem;
 
-    element.src = image;
-    element.alt = isTarget ? "target item5" : "decoy item";
-    element.className = `hunt-object${isTarget ? " target-item" : ""}`;
+    element.src = item.image;
+    element.alt = item.isTarget ? "target item5" : "decoy item";
+    element.className = `hunt-object${item.isTarget ? " target-item" : ""}`;
     element.dataset.time = roundDuration;
-    gameLayer.appendChild(element);
+    element.style.left = `${item.worldX}px`;
+    element.style.top = `${item.worldY}px`;
+    element.style.width = `${item.size}px`;
+    element.style.height = `${item.size}px`;
+    element.style.setProperty("--spin", `${item.rotation}deg`);
+    worldLayer.appendChild(element);
 
     return {
       element,
-      image,
-      isTarget,
-      yaw: positions[index].yaw,
-      pitch: positions[index].pitch,
+      image: item.image,
+      isTarget: item.isTarget,
+      worldX: item.worldX,
+      worldY: item.worldY,
       screenX: 0,
       screenY: 0
     };
   });
 
-  statusText.textContent = `Ada ${spawnedObjects.length} item muncul. Tangkap item5 dalam ${roundDuration} detik.`;
+  statusText.textContent = `Cari item5 di keramaian. Ada ${spawnedObjects.length} item, waktu ${roundDuration} detik.`;
 }
 
-function buildSpawnPositions(total) {
-  const relativeYaw = getRelativeYaw();
-  const relativePitch = getRelativePitch();
-  const spreadYaw = [-12, 12, -24, 24, 0];
-  const spreadPitch = [-8, -7, 7, 8, 0];
-  const positions = [];
+function createWorldLayer() {
+  worldLayer = document.createElement("div");
+  worldLayer.id = "worldLayer";
+  worldLayer.style.width = `${worldWidth}px`;
+  worldLayer.style.height = `${worldHeight}px`;
+  gameLayer.prepend(worldLayer);
+}
 
-  for (let index = 0; index < total; index++) {
-    positions.push({
-      yaw: relativeYaw + spreadYaw[index % spreadYaw.length] + randomRange(-4, 4),
-      pitch: relativePitch + spreadPitch[index % spreadPitch.length] + randomRange(-3, 3)
-    });
+function buildCrowdItems() {
+  const decoyImages = itemImages.filter((image) => image !== scoreItem);
+  const items = [];
+  const safeMargin = 120;
+
+  for (let index = 0; index < crowdSize - 1; index++) {
+    items.push(createCrowdItem(decoyImages[index % decoyImages.length], false, safeMargin));
   }
 
-  return shuffleArray(positions);
+  items.push(createCrowdItem(scoreItem, true, safeMargin));
+
+  return shuffleArray(items);
+}
+
+function createCrowdItem(image, isTarget, safeMargin) {
+  return {
+    image,
+    isTarget,
+    worldX: randomRange(safeMargin, worldWidth - safeMargin),
+    worldY: randomRange(safeMargin, worldHeight - safeMargin),
+    size: isTarget ? randomRange(70, 92) : randomRange(54, 96),
+    rotation: randomRange(-10, 10)
+  };
 }
 
 function clearSpawnedObjects() {
@@ -339,28 +372,22 @@ function updateObjectsPosition() {
     return;
   }
 
-  const relativeYaw = getRelativeYaw();
-  const relativePitch = getRelativePitch();
+  targetCameraX = clamp(getRelativeYaw() * worldSensitivity, -worldWidth / 2, worldWidth / 2);
+  targetCameraY = clamp(getRelativePitch() * worldSensitivity, -worldHeight / 2, worldHeight / 2);
+
+  cameraX += (targetCameraX - cameraX) * cameraEase;
+  cameraY += (targetCameraY - cameraY) * cameraEase;
+
   const centerX = window.innerWidth / 2;
   const centerY = window.innerHeight / 2;
+  const layerLeft = centerX - worldWidth / 2 - cameraX;
+  const layerTop = centerY - worldHeight / 2 - cameraY;
+
+  worldLayer.style.transform = `translate3d(${layerLeft}px, ${layerTop}px, 0)`;
 
   spawnedObjects.forEach((item) => {
-    const diffYaw = normalizeAngle(relativeYaw - item.yaw);
-    const diffPitch = relativePitch - item.pitch;
-
-    item.screenX = centerX + diffYaw * sensitivity;
-    item.screenY = centerY + diffPitch * sensitivity;
-
-    item.element.style.left = `${item.screenX}px`;
-    item.element.style.top = `${item.screenY}px`;
-
-    const isOutside =
-      item.screenX < -visiblePadding ||
-      item.screenX > window.innerWidth + visiblePadding ||
-      item.screenY < -visiblePadding ||
-      item.screenY > window.innerHeight + visiblePadding;
-
-    item.element.style.opacity = isOutside ? "0.28" : "1";
+    item.screenX = layerLeft + item.worldX;
+    item.screenY = layerTop + item.worldY;
   });
 
   animationFrameId = requestAnimationFrame(updateObjectsPosition);
@@ -377,6 +404,10 @@ function shuffleArray(items) {
   }
 
   return items;
+}
+
+function clamp(value, min, max) {
+  return Math.min(Math.max(value, min), max);
 }
 
 function getObjectInCrosshair() {
