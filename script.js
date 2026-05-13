@@ -345,8 +345,8 @@ function updateObjectsPosition() {
   const centerY = window.innerHeight / 2;
 
   spawnedObjects.forEach((item) => {
-    const diffYaw = normalizeAngle(item.yaw - relativeYaw);
-    const diffPitch = item.pitch - relativePitch;
+    const diffYaw = normalizeAngle(relativeYaw - item.yaw);
+    const diffPitch = relativePitch - item.pitch;
 
     item.screenX = centerX + diffYaw * sensitivity;
     item.screenY = centerY + diffPitch * sensitivity;
