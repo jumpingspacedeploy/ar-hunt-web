@@ -6,6 +6,7 @@ const timerText = document.getElementById("timerText");
 const statusText = document.getElementById("statusText");
 
 const startBtn = document.getElementById("startBtn");
+const gyroBtn = document.getElementById("gyroBtn");
 const voiceBtn = document.getElementById("voiceBtn");
 const catchBtn = document.getElementById("catchBtn");
 const resetBtn = document.getElementById("resetBtn");
@@ -16,12 +17,7 @@ const finalScoreText = document.getElementById("finalScoreText");
 const finalTotalCaughtText = document.getElementById("finalTotalCaughtText");
 const finalTimeText = document.getElementById("finalTimeText");
 
-// =====================
-// SETTING GAME
-// =====================
-
 const targetScore = 5;
-
 const scoreItem = "assets/item5.png";
 
 const itemImages = [
@@ -32,21 +28,15 @@ const itemImages = [
   "assets/item5.png"
 ];
 
-// =====================
-// STATE
-// =====================
-
 let score = 0;
 let totalCaught = 0;
-
 let currentItemImage = "";
-
-let objectX = 0;
-let objectY = 0;
-let objectVisible = false;
 
 let gameStarted = false;
 let cameraStarted = false;
+let gyroStarted = false;
+
+let objectVisible = false;
 
 let startTime = 0;
 let elapsedTime = 0;
@@ -55,11 +45,22 @@ let timerInterval = null;
 let recognition = null;
 let isListening = false;
 
-const deviceInfo = detectDeviceInfo();
+let currentYaw = 0;
+let currentPitch = 0;
 
-// =====================
-// DEVICE DETECTION
-// =====================
+let baseYaw = null;
+let basePitch = null;
+
+let targetYaw = 0;
+let targetPitch = 0;
+
+let objectScreenX = 0;
+let objectScreenY = 0;
+
+const sensitivity = 22;
+const catchRadius = 70;
+
+const deviceInfo = detectDeviceInfo();
 
 function detectDeviceInfo() {
   const ua = navigator.userAgent || "";
@@ -71,29 +72,19 @@ function detectDeviceInfo() {
 
   const isAndroid = /android/.test(uaLower);
 
-  const isChrome =
-    /chrome|crios/i.test(ua) &&
-    !/edg|opr|opera/i.test(ua);
-
-  const isSafari =
-    /safari/i.test(ua) &&
-    !/chrome|crios|android|edg|opr|opera/i.test(ua);
-
   return {
     isIOS,
-    isAndroid,
-    isChrome,
-    isSafari
+    isAndroid
   };
 }
 
 function showDeviceMessage() {
   if (deviceInfo.isIOS) {
-    statusText.textContent = "iOS terdeteksi. Gunakan Safari, lalu izinkan camera dan microphone.";
+    statusText.textContent = "iOS terdeteksi. Tekan Start Camera, lalu Aktifkan Gyro.";
   } else if (deviceInfo.isAndroid) {
-    statusText.textContent = "Android terdeteksi. Gunakan Chrome, lalu izinkan camera dan microphone.";
+    statusText.textContent = "Android terdeteksi. Tekan Start Camera, lalu Aktifkan Gyro.";
   } else {
-    statusText.textContent = "Gunakan browser mobile: Safari iOS atau Chrome Android.";
+    statusText.textContent = "Gunakan Safari iOS atau Chrome Android.";
   }
 }
 
@@ -123,29 +114,108 @@ async function startCamera() {
     await camera.play();
 
     cameraStarted = true;
-    statusText.textContent = "Camera aktif. Game dimulai.";
+    statusText.textContent = "Camera aktif. Sekarang tekan Aktifkan Gyro.";
 
-    startGame();
+    if (gyroStarted) {
+      startGame();
+    }
   } catch (error) {
     console.error("Camera error:", error);
 
     if (location.protocol !== "https:" && location.hostname !== "localhost") {
-      statusText.textContent = "Camera butuh HTTPS. Upload web ke hosting yang punya SSL/HTTPS.";
+      statusText.textContent = "Camera butuh HTTPS. Upload ke hosting HTTPS.";
       return;
     }
 
     if (error.name === "NotAllowedError") {
-      statusText.textContent = "Izin camera ditolak. Aktifkan permission camera di browser.";
+      statusText.textContent = "Izin camera ditolak.";
       return;
     }
 
-    if (error.name === "NotFoundError") {
-      statusText.textContent = "Camera tidak ditemukan di device ini.";
-      return;
-    }
-
-    statusText.textContent = "Gagal membuka camera. Coba refresh dan izinkan camera.";
+    statusText.textContent = "Gagal membuka camera.";
   }
+}
+
+// =====================
+// GYRO / ORIENTATION
+// =====================
+
+async function startGyro() {
+  try {
+    if (!window.DeviceOrientationEvent) {
+      statusText.textContent = "Gyro/orientation tidak didukung browser ini.";
+      return;
+    }
+
+    if (typeof DeviceOrientationEvent.requestPermission === "function") {
+      const permission = await DeviceOrientationEvent.requestPermission();
+
+      if (permission !== "granted") {
+        statusText.textContent = "Izin gyro ditolak.";
+        return;
+      }
+    }
+
+    window.addEventListener("deviceorientation", handleOrientation, true);
+
+    gyroStarted = true;
+    gyroBtn.textContent = "Gyro Aktif";
+
+    statusText.textContent = "Gyro aktif. Arahkan HP untuk mencari item.";
+
+    if (cameraStarted) {
+      startGame();
+    }
+  } catch (error) {
+    console.error("Gyro error:", error);
+    statusText.textContent = "Gyro gagal aktif. Coba refresh lalu tekan tombol lagi.";
+  }
+}
+
+function handleOrientation(event) {
+  /*
+    alpha = arah kiri/kanan / kompas relatif
+    beta  = kemiringan depan/belakang
+    gamma = miring kiri/kanan
+
+    Untuk game sederhana:
+    - alpha dipakai sebagai yaw
+    - beta dipakai sebagai pitch
+  */
+
+  if (event.alpha === null || event.beta === null) {
+    return;
+  }
+
+  currentYaw = event.alpha;
+  currentPitch = event.beta;
+
+  if (baseYaw === null) {
+    baseYaw = currentYaw;
+    basePitch = currentPitch;
+  }
+}
+
+function getRelativeYaw() {
+  if (baseYaw === null) return 0;
+  return normalizeAngle(currentYaw - baseYaw);
+}
+
+function getRelativePitch() {
+  if (basePitch === null) return 0;
+  return currentPitch - basePitch;
+}
+
+function normalizeAngle(angle) {
+  while (angle > 180) angle -= 360;
+  while (angle < -180) angle += 360;
+  return angle;
+}
+
+function recenterGyro() {
+  baseYaw = currentYaw;
+  basePitch = currentPitch;
+  statusText.textContent = "Arah tengah disetel ulang.";
 }
 
 // =====================
@@ -155,6 +225,11 @@ async function startCamera() {
 function startGame() {
   if (!cameraStarted) {
     statusText.textContent = "Aktifkan camera dulu.";
+    return;
+  }
+
+  if (!gyroStarted) {
+    statusText.textContent = "Aktifkan gyro dulu agar object tidak ikut layar.";
     return;
   }
 
@@ -175,7 +250,10 @@ function startGame() {
   clearInterval(timerInterval);
   timerInterval = setInterval(updateTimer, 100);
 
+  recenterGyro();
   spawnObject();
+
+  requestAnimationFrame(updateObjectPosition);
 }
 
 function updateTimer() {
@@ -193,38 +271,60 @@ function spawnObject() {
     return;
   }
 
-  const screenW = window.innerWidth;
-  const screenH = window.innerHeight;
-
-  const marginX = 80;
-  const topSafe = 120;
-  const bottomSafe = 310;
-
-  const minX = marginX;
-  const maxX = screenW - marginX;
-
-  const minY = topSafe;
-  const maxY = screenH - bottomSafe;
-
-  objectX = randomRange(minX, maxX);
-  objectY = randomRange(minY, maxY);
-
   const randomIndex = Math.floor(Math.random() * itemImages.length);
   currentItemImage = itemImages[randomIndex];
 
   huntObject.src = currentItemImage;
 
-  huntObject.style.left = `${objectX}px`;
-  huntObject.style.top = `${objectY}px`;
-  huntObject.style.display = "block";
+  /*
+    Target disimpan sebagai sudut virtual,
+    bukan posisi layar.
+    Jadi saat HP diputar, object akan bergeser relatif ke crosshair.
+  */
 
+  targetYaw = randomRange(-35, 35);
+  targetPitch = randomRange(-18, 18);
+
+  huntObject.style.display = "block";
   objectVisible = true;
 
   if (currentItemImage === scoreItem) {
-    statusText.textContent = `Item target muncul! Arahkan crosshair, lalu bilang "tangkap". Score: ${score}/5`;
+    statusText.textContent = `Target item5 muncul. Putar HP sampai masuk crosshair. Score: ${score}/5`;
   } else {
     statusText.textContent = `Item biasa muncul. Hanya item5.png yang menambah score. Score: ${score}/5`;
   }
+}
+
+function updateObjectPosition() {
+  if (!gameStarted || !objectVisible) {
+    requestAnimationFrame(updateObjectPosition);
+    return;
+  }
+
+  const relativeYaw = getRelativeYaw();
+  const relativePitch = getRelativePitch();
+
+  const diffYaw = normalizeAngle(targetYaw - relativeYaw);
+  const diffPitch = targetPitch - relativePitch;
+
+  const centerX = window.innerWidth / 2;
+  const centerY = window.innerHeight / 2;
+
+  objectScreenX = centerX + diffYaw * sensitivity;
+  objectScreenY = centerY + diffPitch * sensitivity;
+
+  huntObject.style.left = `${objectScreenX}px`;
+  huntObject.style.top = `${objectScreenY}px`;
+
+  const isOutside =
+    objectScreenX < -100 ||
+    objectScreenX > window.innerWidth + 100 ||
+    objectScreenY < -100 ||
+    objectScreenY > window.innerHeight + 100;
+
+  huntObject.style.opacity = isOutside ? "0.25" : "1";
+
+  requestAnimationFrame(updateObjectPosition);
 }
 
 function randomRange(min, max) {
@@ -235,9 +335,9 @@ function isObjectInCrosshair() {
   const centerX = window.innerWidth / 2;
   const centerY = window.innerHeight / 2;
 
-  const distance = Math.hypot(objectX - centerX, objectY - centerY);
+  const distance = Math.hypot(objectScreenX - centerX, objectScreenY - centerY);
 
-  return distance <= 95;
+  return distance <= catchRadius;
 }
 
 function catchObject() {
@@ -247,12 +347,12 @@ function catchObject() {
   }
 
   if (!objectVisible) {
-    statusText.textContent = "Belum ada item yang muncul.";
+    statusText.textContent = "Belum ada item.";
     return;
   }
 
   if (!isObjectInCrosshair()) {
-    statusText.textContent = "Item belum tepat di tengah crosshair.";
+    statusText.textContent = "Item belum tepat di tengah crosshair. Putar HP sampai pas.";
     return;
   }
 
@@ -274,12 +374,10 @@ function catchObject() {
 
     statusText.textContent = `Benar! item5.png tertangkap. Score: ${score}/5`;
   } else {
-    statusText.textContent = `Item tertangkap, tapi bukan item5.png. Score tetap: ${score}/5`;
+    statusText.textContent = `Item tertangkap, tapi bukan item5.png. Score tetap ${score}/5`;
   }
 
-  setTimeout(() => {
-    spawnObject();
-  }, 700);
+  setTimeout(spawnObject, 700);
 }
 
 function finishGame() {
@@ -319,7 +417,7 @@ function resetGame() {
   huntObject.style.display = "none";
   resultPanel.classList.add("hidden");
 
-  statusText.textContent = "Game direset. Tekan Start Camera untuk mulai.";
+  statusText.textContent = "Game direset. Tekan Start Camera lalu Aktifkan Gyro.";
 }
 
 function vibratePhone() {
@@ -337,14 +435,7 @@ function setupVoice() {
     window.SpeechRecognition || window.webkitSpeechRecognition;
 
   if (!SpeechRecognition) {
-    if (deviceInfo.isIOS) {
-      statusText.textContent = "Voice tidak tersedia di Safari ini. Pakai tombol Tangkap Manual.";
-    } else if (deviceInfo.isAndroid) {
-      statusText.textContent = "Voice tidak tersedia. Coba buka dengan Chrome Android.";
-    } else {
-      statusText.textContent = "Voice recognition tidak didukung browser ini.";
-    }
-
+    statusText.textContent = "Voice tidak tersedia di browser ini. Pakai tombol manual.";
     return;
   }
 
@@ -370,8 +461,6 @@ function setupVoice() {
     const result = event.results[0][0].transcript;
     const command = result.toLowerCase().trim();
 
-    console.log("Voice result:", command);
-
     statusText.textContent = `Terdengar: "${command}"`;
 
     if (isCatchCommand(command)) {
@@ -380,17 +469,13 @@ function setupVoice() {
   };
 
   recognition.onerror = (event) => {
-    console.log("Speech error:", event.error);
-
     isListening = false;
     voiceBtn.textContent = "Aktifkan Voice";
 
     if (event.error === "not-allowed") {
-      statusText.textContent = "Microphone ditolak. Izinkan microphone di browser.";
+      statusText.textContent = "Microphone ditolak.";
     } else if (event.error === "no-speech") {
-      statusText.textContent = "Tidak ada suara terdeteksi. Tekan Voice lagi.";
-    } else if (event.error === "audio-capture") {
-      statusText.textContent = "Microphone tidak ditemukan.";
+      statusText.textContent = "Tidak ada suara terdeteksi.";
     } else {
       statusText.textContent = `Voice error: ${event.error}`;
     }
@@ -399,19 +484,11 @@ function setupVoice() {
   recognition.onend = () => {
     isListening = false;
     voiceBtn.textContent = "Aktifkan Voice";
-
-    /*
-      Untuk iOS Safari:
-      Jangan auto-start voice terus-menerus.
-      Safari sering memblokir restart otomatis.
-      Jadi user tekan tombol Voice lagi setiap mau memberi command.
-    */
   };
 
   try {
     recognition.start();
   } catch (error) {
-    console.error("Recognition start error:", error);
     statusText.textContent = "Voice gagal dimulai. Tekan ulang tombol Voice.";
   }
 }
@@ -446,34 +523,16 @@ function isCatchCommand(command) {
 // EVENTS
 // =====================
 
-window.addEventListener("load", () => {
-  showDeviceMessage();
-});
+window.addEventListener("load", showDeviceMessage);
 
-startBtn.addEventListener("click", () => {
-  startCamera();
-});
-
-voiceBtn.addEventListener("click", () => {
-  setupVoice();
-});
-
-catchBtn.addEventListener("click", () => {
-  catchObject();
-});
-
-resetBtn.addEventListener("click", () => {
-  resetGame();
-});
+startBtn.addEventListener("click", startCamera);
+gyroBtn.addEventListener("click", startGyro);
+voiceBtn.addEventListener("click", setupVoice);
+catchBtn.addEventListener("click", catchObject);
+resetBtn.addEventListener("click", resetGame);
 
 playAgainBtn.addEventListener("click", () => {
   startGame();
-});
-
-window.addEventListener("resize", () => {
-  if (gameStarted && objectVisible) {
-    spawnObject();
-  }
 });
 
 document.addEventListener("visibilitychange", () => {
